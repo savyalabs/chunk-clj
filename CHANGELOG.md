@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `chunk.core/chunk-document` for chunking document maps while preserving their id,
+  metadata, chunk index, and source character offsets.
+
 ## [0.3.1] - 2026-08-17
 
 ### Fixed

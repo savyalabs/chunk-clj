@@ -209,3 +209,23 @@
            (recur (next chunks) next-lower-bound
                   (conj out {:text chunk :start (when found? start) :end end})))
          out)))))
+
+(defn chunk-document
+  "Split a document into chunks carrying its id, metadata, and source offsets.
+
+  The document must be a map with `:id`, `:text`, and `:metadata` keys. Options
+  match `split`, including `:chunk-size`, `:overlap`, `:separators`, `:language`,
+  `:keep-separator`, and `:length-fn`. Each returned map has `:id`, `:index`,
+  `:start`, `:end`, `:text`, and `:metadata` keys. Offsets are character indices
+  into the document's original `:text` value.
+
+  With `:keep-separator false`, offsets may be nil when a chunk is not an exact
+  source substring, matching `split-with-offsets`."
+  ([document] (chunk-document document nil))
+  ([{:keys [id text metadata]} opts]
+   (map-indexed (fn [index chunk]
+                  (assoc chunk
+                         :id id
+                         :index index
+                         :metadata metadata))
+                (split-with-offsets text opts))))

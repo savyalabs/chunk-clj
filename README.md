@@ -67,6 +67,14 @@ clojure -T:build deploy
 ;; Keep source locations for indexing or highlighting:
 (chunk/split-with-offsets doc {:chunk-size 800 :language :markdown})
 ;=> [{:text "...", :start 0, :end 42} ...]
+
+;; Carry document identity and caller metadata through chunking:
+(chunk/chunk-document {:id "doc-42"
+                       :text doc
+                       :metadata {:source "notes.md"}}
+                      {:chunk-size 800 :language :markdown})
+;=> [{:id "doc-42", :index 0, :start 0, :end 42,
+;     :text "...", :metadata {:source "notes.md"}} ...]
 ```
 
 By default, `:keep-separator :start` keeps each separator and attaches it to the piece
@@ -131,6 +139,11 @@ where the offsets index the original input. With `:keep-separator false`, a chun
 is not an exact source substring has nil offsets. The splitter caches token-mode
 measurements for each split call. It does not tokenize a joined candidate again after
 it measures the candidate.
+
+`chunk-document` accepts a document map with `:id`, `:text`, and `:metadata`, and returns
+the same source offsets together with the document id, caller metadata, and a zero-based
+`:index` for each chunk. It accepts the same options as `split` and
+`split-with-offsets`; metadata is passed through unchanged.
 
 ## License
 

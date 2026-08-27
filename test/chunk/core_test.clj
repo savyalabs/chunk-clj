@@ -173,6 +173,21 @@
     (is (every? #(= (:text %) (subs text (:start %) (:end %))) chunks))
     (is (some #(str/starts-with? (:text %) "def second():") chunks))))
 
+(deftest chunk-document-preserves-metadata-and-source-provenance
+  (let [source-text (str "Alpha paragraph with enough words.\n\n"
+                         "Beta paragraph carries the citation.\n\n"
+                         "Gamma paragraph closes the document.")
+        metadata {:source "notes.md" :tags #{:rag :example}}
+        document {:id "doc-42" :text source-text :metadata metadata}
+        chunks (c/chunk-document document {:chunk-size 25 :overlap 0})]
+    (is (> (count chunks) 1))
+    (is (= (range (count chunks)) (map :index chunks)))
+    (is (every? #(= "doc-42" (:id %)) chunks))
+    (is (every? #(identical? metadata (:metadata %)) chunks))
+    (doseq [chunk chunks]
+      (is (= (:text chunk)
+             (subs source-text (:start chunk) (:end chunk)))))))
+
 (deftest caches-length-fn-measurements-within-a-split
   (let [calls (atom 0)
         length-fn (fn [s] (swap! calls inc) (count s))
