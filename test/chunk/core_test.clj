@@ -197,3 +197,53 @@
     (is (= ["one two three" "four five six" "six seven" "eight nine ten"
             "ten eleven" "twelve"] chunks))
     (is (< @calls 35))))
+
+(deftest streaming-split-is-lazy-and-incremental
+  (let [streaming c/split-seq
+        calls (atom 0)
+        text (str/join " " (map #(str "word-" %) (range 80)))
+        opts {:chunk-size 24
+              :overlap 5
+              :length-fn (fn [s] (swap! calls inc) (count s))}
+        chunks (when streaming (streaming text opts))]
+    (is streaming "chunk.core/split-seq should be public")
+    (is (instance? clojure.lang.LazySeq chunks))
+    (is (string? (first chunks)))
+    (let [prefix-calls @calls]
+      (is (< prefix-calls (count (c/split text (assoc opts :length-fn count))))))))
+
+(deftest streaming-boundaries-match-eager-path-property
+  (let [fragments ["alpha" "beta" "gamma" "delta" "😀" "é" "𝔘"]
+        separators [["\n\n" "\n" " " ""]
+                    ["|" " "]
+                    ["::" ""]]
+        keep-modes [:start :end false]]
+    (doseq [n (range 1 36)
+            sep-index (range (count separators))
+            keep keep-modes
+            overlap (range 0 8)]
+      (let [text (str/join (if (zero? (mod n 3)) "\n\n" " ")
+                           (take n (cycle fragments)))
+            seps (nth separators sep-index)
+            opts {:chunk-size (+ 4 (mod n 17))
+                  :overlap overlap
+                  :separators seps
+                  :keep-separator keep
+                  :length-fn #(count (str/replace % #"[aeiou]" ""))}]
+        (is (= (c/split text opts)
+               (vec (c/split-seq text opts)))
+            (str "n=" n ", separators=" seps ", keep=" keep
+                 ", overlap=" overlap))))))
+
+(deftest streaming-document-preserves-metadata-and-offsets
+  (let [metadata {:source "stream.md"}
+        document {:id "doc-stream"
+                  :text "alpha 😀 beta\n\ngamma é delta"
+                  :metadata metadata}
+        opts {:chunk-size 10 :overlap 2}
+        eager (c/chunk-document document opts)
+        streaming (vec (c/chunk-document-seq document opts))]
+    (is (= eager streaming))
+    (is (every? #(identical? metadata (:metadata %)) streaming))
+    (is (every? #(= (:text %) (subs (:text document) (:start %) (:end %)))
+                streaming))))
