@@ -75,6 +75,15 @@ clojure -T:build deploy
                       {:chunk-size 800 :language :markdown})
 ;=> [{:id "doc-42", :index 0, :start 0, :end 42,
 ;     :text "...", :metadata {:source "notes.md"}} ...]
+
+;; Stream chunks without collecting the complete result vector:
+(doseq [chunk (chunk/split-seq long-text {:chunk-size 1000 :overlap 200})]
+  (send-to-index! chunk))
+
+;; Streaming offsets and document metadata are also available:
+(chunk/split-with-offsets-seq doc {:chunk-size 800})
+(chunk/chunk-document-seq {:id "doc-42" :text doc :metadata {:source "notes.md"}}
+                          {:chunk-size 800})
 ```
 
 By default, `:keep-separator :start` keeps each separator and attaches it to the piece
@@ -144,6 +153,12 @@ it measures the candidate.
 the same source offsets together with the document id, caller metadata, and a zero-based
 `:index` for each chunk. It accepts the same options as `split` and
 `split-with-offsets`; metadata is passed through unchanged.
+
+`split-seq`, `split-with-offsets-seq`, and `chunk-document-seq` are lazy streaming
+counterparts to the eager APIs. They retain only the active packing buffer and overlap
+tail while producing chunks, so consumers can process large documents incrementally.
+Their chunk boundaries, grapheme-safe character fallback, overlap, separator behavior,
+offsets, and document metadata are identical to the corresponding eager APIs.
 
 ## License
 

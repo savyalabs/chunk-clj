@@ -157,6 +157,154 @@
                     (merge-splits good (if (= keep-separator false) sep "")
                                   chunk-size overlap length-fn cache)))))))
 
+(defn- split-on-lazy
+  "Lazy counterpart to split-on. It yields the same pieces without collecting them."
+  [^String s ^String sep keep-separator]
+  (cond
+    (= sep "") (re-seq (Pattern/compile "\\X") s)
+    (= keep-separator false)
+    (letfn [(pieces [start]
+              (lazy-seq
+               (let [at (.indexOf s sep start)]
+                 (cond
+                   (neg? at) (when (< start (count s)) (list (subs s start)))
+                   (= at start) (pieces (+ at (count sep)))
+                   :else (cons (subs s start at)
+                               (pieces (+ at (count sep))))))))]
+      (pieces 0))
+    :else
+    (letfn [(pieces [piece-start search-start]
+              (lazy-seq
+               (let [at (.indexOf s sep search-start)
+                     separator-length (count sep)]
+                 (if (neg? at)
+                   (when (< piece-start (count s))
+                     (list (subs s piece-start)))
+                   (if (= keep-separator :start)
+                     (cons (when (< piece-start at)
+                             (subs s piece-start at))
+                           (pieces at (+ at separator-length)))
+                     (cons (subs s piece-start (+ at separator-length))
+                           (pieces (+ at separator-length)
+                                   (+ at separator-length))))))))]
+      (if (= keep-separator :start)
+        (filter identity (pieces 0 0))
+        (pieces 0 0)))))
+
+(defn- merge-splits-lazy
+  "Lazy counterpart to merge-splits. Only the current chunk buffer is retained."
+  [pieces sep chunk-size overlap length-fn cache cur]
+  (lazy-seq
+   (if-let [d (first pieces)]
+     (let [candidate (conj cur d)
+           candidate-len (joined-length candidate sep length-fn cache)]
+       (if (and (seq cur) (> candidate-len (long chunk-size)))
+         (let [doc (join-trim cur sep)]
+           (if doc
+             (cons doc
+                   (merge-splits-lazy pieces sep chunk-size overlap length-fn cache
+                                      (trim-overlap cur d sep chunk-size overlap
+                                                     length-fn cache)))
+             (merge-splits-lazy pieces sep chunk-size overlap length-fn cache
+                                (trim-overlap cur d sep chunk-size overlap
+                                               length-fn cache))))
+         (merge-splits-lazy (next pieces) sep chunk-size overlap length-fn cache
+                            candidate)))
+     (when-let [doc (join-trim cur sep)] (list doc)))))
+
+(defn- recursive-split-lazy
+  [text separators chunk-size overlap length-fn keep-separator cache]
+  (let [sep (or (some #(when (and (not= "" %) (str/includes? text %)) %) separators)
+                (last separators))
+        deeper-seps (vec (rest (drop-while #(not= % sep) separators)))
+        pieces (split-on-lazy text sep keep-separator)
+        join-sep (if (= keep-separator false) sep "")]
+    (letfn [(walk [pieces good]
+              (lazy-seq
+               (if-let [p (first pieces)]
+                 (if (<= (long (if (contains? @cache p)
+                                   (get @cache p)
+                                   (let [length (long (length-fn p))]
+                                     (swap! cache assoc p length)
+                                     length)))
+                         chunk-size)
+                   (let [candidate (conj good p)]
+                     (if (and (seq good)
+                              (> (joined-length candidate join-sep length-fn cache)
+                                 (long chunk-size)))
+                       (cons (join-trim good join-sep)
+                             (walk pieces (trim-overlap good p join-sep
+                                                        chunk-size overlap
+                                                        length-fn cache)))
+                       (walk (next pieces) candidate)))
+                   (let [deeper (if (seq deeper-seps)
+                                  (recursive-split-lazy p deeper-seps chunk-size
+                                                         overlap length-fn
+                                                         keep-separator cache)
+                                  (list p))]
+                     (concat (when-let [doc (when (seq good)
+                                             (join-trim good join-sep))]
+                               (list doc))
+                             deeper (walk (next pieces) []))))
+                 (if (seq good)
+                   (merge-splits-lazy good join-sep chunk-size overlap
+                                      length-fn cache [])
+                   ()))))]
+      (walk pieces []))))
+
+(defn split-seq
+  "Lazily split `text` into chunk strings.
+
+  This is the streaming counterpart to `split`: it produces identical chunks,
+  but retains only the active recursive buffer and overlap tail as the result is
+  consumed. Options match `split`."
+  ([text] (split-seq text nil))
+  ([text opts]
+   (let [opts (or opts {})
+         {:keys [chunk-size overlap separators language length-fn keep-separator]
+          :or {chunk-size 1000 overlap 0 length-fn count}} opts
+         separators (cond
+                      (and (contains? opts :language) (contains? opts :separators))
+                      (throw (ex-info "Conflicting options"
+                                      {:chunk/error :conflicting-options
+                                       :options #{:language :separators}}))
+                      (contains? opts :language) (separators-for language)
+                      (contains? opts :separators) separators
+                      :else default-separators)]
+     (if (str/blank? (str text))
+       (lazy-seq nil)
+       (recursive-split-lazy text (vec separators) chunk-size overlap length-fn
+                              (if (contains? opts :keep-separator) keep-separator :start)
+                              (atom {}))))))
+
+(defn split-with-offsets-seq
+  "Lazily split `text` into maps with `:text`, `:start`, and `:end` offsets.
+
+  Options and offset behavior match `split-with-offsets`."
+  ([text] (split-with-offsets-seq text nil))
+  ([text opts]
+   (let [source (str text)]
+     (letfn [(offsets [chunks lower-bound]
+               (lazy-seq
+                (when-let [chunk (first chunks)]
+                  (let [start (.indexOf ^String source ^String chunk (int lower-bound))
+                        found? (not (neg? start))
+                        end (when found? (+ start (count chunk)))
+                        next-lower-bound (if found? (inc start) lower-bound)]
+                    (cons {:text chunk :start (when found? start) :end end}
+                          (offsets (next chunks) next-lower-bound))))))]
+       (offsets (split-seq source opts) 0)))))
+
+(defn chunk-document-seq
+  "Lazily split a document while preserving id, metadata, index, and offsets.
+
+  The document and options match `chunk-document`."
+  ([document] (chunk-document-seq document nil))
+  ([{:keys [id text metadata]} opts]
+   (map-indexed (fn [index chunk]
+                  (assoc chunk :id id :index index :metadata metadata))
+                (split-with-offsets-seq text opts))))
+
 (defn split
   "Split `text` into a vector of chunk strings.
 

@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Lazy streaming APIs: `split-seq`, `split-with-offsets-seq`, and
+  `chunk-document-seq`. They preserve eager chunk boundaries, overlap, grapheme-safe
+  splitting, source offsets, and document metadata without materializing the result vector.
+
 ## [0.4.0] - 2026-08-27
 
 ### Added
