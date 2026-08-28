@@ -28,13 +28,13 @@ You set the size limit. `:length-fn` defaults to characters. Models limit you by
 tools.deps (`deps.edn`):
 
 ```clojure
-net.clojars.savya/chunk-clj {:mvn/version "0.6.0"}
+net.clojars.savya/chunk-clj {:mvn/version "0.7.0"}
 ```
 
 Leiningen (`project.clj`):
 
 ```clojure
-[net.clojars.savya/chunk-clj "0.6.0"]
+[net.clojars.savya/chunk-clj "0.7.0"]
 ```
 
 ## Development

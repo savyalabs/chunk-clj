@@ -4,6 +4,8 @@ All notable changes to this project are documented here. Format follows [Keep a 
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-28
+
 ### Added
 
 - Opt-in per-chunk diagnostics reporting the selected separator, recursion depth,
