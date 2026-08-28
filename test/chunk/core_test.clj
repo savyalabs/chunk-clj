@@ -1,7 +1,10 @@
 (ns chunk.core-test
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
-            [chunk.core :as c])
+            [chunk.core :as c]
+            [clojure.test.check.clojure-test :refer [defspec]]
+            [clojure.test.check.generators :as gen]
+            [clojure.test.check.properties :as prop])
   (:import [java.nio.charset StandardCharsets]))
 
 (deftest short-text-stays-whole
@@ -136,12 +139,66 @@
     (catch clojure.lang.ExceptionInfo e
       (is (= :conflicting-options (:chunk/error (ex-data e)))))))
 
+(deftest invalid-options-report-the-option
+  (doseq [[opts option] [[{:chunk-size 0} :chunk-size]
+                         [{:overlap -1} :overlap]
+                         [{:separators [" " 42]} :separators]
+                         [{:length-fn "count"} :length-fn]]]
+    (try
+      (c/split "hello world" opts)
+      (is false (str "Expected invalid " option))
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :invalid-option (:chunk/error (ex-data e))))
+        (is (= option (:option (ex-data e)))))))
+  (try
+    (c/split 42 {})
+    (is false "Expected invalid text")
+    (catch clojure.lang.ExceptionInfo e
+      (is (= :invalid-option (:chunk/error (ex-data e))))
+      (is (= :text (:option (ex-data e)))))))
+
+(deftest invalid-length-results-report-the-length-function
+  (try
+    (c/split "hello" {:chunk-size 2 :length-fn (constantly "large")})
+    (is false "Expected invalid length result")
+    (catch clojure.lang.ExceptionInfo e
+      (is (= :invalid-length (:chunk/error (ex-data e))))
+      (is (= :length-fn (:option (ex-data e)))))))
+
+(deftest sentence-boundaries-are-opt-in-and-configurable
+  (let [text "Dr. Smith arrived. It was late! Really?"
+        chunks (c/split text {:chunk-size 20
+                              :overlap 0
+                              :sentence-boundaries {:abbreviations ["Dr."]}})]
+    (is (> (count chunks) 1))
+    (is (some #(str/includes? % "Dr. Smith") chunks))
+    (is (some #(str/includes? % "It was late!") chunks)))
+  (is (instance? java.util.regex.Pattern (c/sentence-separators))))
+
 (deftest language-separators-have-default-tail-and-literal-strings
   (doseq [[language separators] c/language-separators]
     (testing language
       (is (vector? separators))
       (is (= ["\n\n" "\n" " " ""] (subvec separators (- (count separators) 4))))
       (is (every? string? separators)))))
+
+(deftest additional-format-presets-are-available
+  (doseq [language [:json :xml :yaml :sql :prose :rst]]
+    (testing language
+      (let [separators (c/separators-for language)]
+        (is (vector? separators))
+        (is (= c/default-separators (subvec separators (- (count separators) 4))))
+        (is (> (count separators) 4))))))
+
+(deftest additional-format-presets-split-structural-boundaries
+  (is (= 2 (count (c/split "{\"a\": 1}\n{\"b\": 2}" {:chunk-size 12 :language :json}))))
+  (is (some #(str/starts-with? % "<item")
+            (c/split "<item>a</item><item>b</item>" {:chunk-size 15 :language :xml})))
+  (is (> (count (c/split "first: one\n---\nsecond: two" {:chunk-size 15 :language :yaml})) 1))
+  (is (some #(str/starts-with? % "SELECT")
+            (c/split "SELECT * FROM users\nWHERE id = 1" {:chunk-size 20 :language :sql})))
+  (is (> (count (c/split "First paragraph.\n\nSecond paragraph." {:chunk-size 20 :language :prose})) 1))
+  (is (> (count (c/split "Title\n=====\n\nBody text." {:chunk-size 15 :language :rst})) 1)))
 
 (deftest default-behavior-matches-explicit-default-separators
   (let [text "Alpha beta.\n\nGamma delta.\n\nEpsilon zeta."]
@@ -158,6 +215,23 @@
            (c/split text (assoc opts :keep-separator :end))))
     (is (= ["alpha" "beta" "gamma"]
            (c/split text (assoc opts :keep-separator false))))))
+
+(deftest regex-separators-respect-retention-modes
+  (let [opts {:chunk-size 8
+              :overlap 0
+              :separators [#"\d+" ""]}
+        text "alpha12beta345gamma"]
+    (is (= ["alpha" "12beta" "345gamma"] (c/split text opts)))
+    (is (= ["alpha12" "beta345" "gamma"]
+           (c/split text (assoc opts :keep-separator :end))))
+    (is (= ["alpha" "beta" "gamma"]
+           (c/split text (assoc opts :keep-separator false))))))
+
+(deftest regex-separators-support-zero-width-matches
+  (is (= ["a" "b" "c"]
+         (c/split "abc" {:chunk-size 1
+                          :separators [#"(?<=.)" ""]
+                          :overlap 0}))))
 
 (deftest split-with-offsets-preserves-source-substrings
   (let [source "alpha beta gamma delta epsilon zeta"
@@ -247,3 +321,14 @@
     (is (every? #(identical? metadata (:metadata %)) streaming))
     (is (every? #(= (:text %) (subs (:text document) (:start %) (:end %)))
                 streaming))))
+
+(defspec generated-inputs-have-equal-eager-and-lazy-results 100
+  (prop/for-all [fragments (gen/vector (gen/elements ["a" "b" "é" "😀" "𝔘"]) 1 18)
+                 separator (gen/elements [" " "|" "::" "\n"])
+                 chunk-size (gen/choose 1 24)
+                 overlap (gen/choose 0 8)
+                 keep (gen/elements [:start :end false])]
+    (let [text (str/join separator fragments)
+          opts {:chunk-size chunk-size :overlap overlap
+                :separators [separator ""] :keep-separator keep}]
+      (= (c/split text opts) (vec (c/split-seq text opts))))))
