@@ -146,6 +146,7 @@ model's exact token limit.
 | `:keep-separator` | `:start` | Keep separators on the following piece (`:end` attaches them to the preceding piece; `false` drops them) |
 | `:language` | - | Select a built-in language separator preset |
 | `:length-fn` | `count` | Measures a string's size (use a token counter) |
+| `:diagnostics` | `false` | Return each chunk as `{:text s :diagnostics {...}}` with splitter measurements |
 
 Set `:sentence-boundaries` to `true` or to a map with `:terminators` and
 `:abbreviations` to add sentence boundaries ahead of the default hierarchy.
@@ -175,6 +176,11 @@ counterparts to the eager APIs. They retain only the active packing buffer and o
 tail while producing chunks, so consumers can process large documents incrementally.
 Their chunk boundaries, grapheme-safe character fallback, overlap, separator behavior,
 offsets, and document metadata are identical to the corresponding eager APIs.
+
+Set `:diagnostics true` to opt in to per-chunk diagnostics. The nested map reports
+`:separator`, recursion `:depth`, the cached `:length` measurement, `:overflowed?`, and
+`:oversized-atom?`. Diagnostics are available on the eager and lazy APIs, including
+the offset and document variants; without this option, return shapes are unchanged.
 
 ## License
 

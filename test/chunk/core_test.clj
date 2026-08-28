@@ -10,6 +10,71 @@
 (deftest short-text-stays-whole
   (is (= ["hello world"] (c/split "hello world" {:chunk-size 100}))))
 
+(deftest diagnostics-are-opt-in-and-describe-chunks
+  (let [opts {:chunk-size 15 :overlap 0 :diagnostics true}
+        text "Alpha beta.\n\nGamma delta.\n\nEpsilon zeta."
+        expected [{:text "Alpha beta."
+                   :diagnostics {:separator "\n\n" :depth 0 :length 11
+                                 :overflowed? false :oversized-atom? false}}
+                  {:text "Gamma delta."
+                   :diagnostics {:separator "\n\n" :depth 0 :length 14
+                                 :overflowed? false :oversized-atom? false}}
+                  {:text "Epsilon zeta."
+                   :diagnostics {:separator "\n\n" :depth 0 :length 15
+                                 :overflowed? false :oversized-atom? false}}]]
+    (is (= expected (c/split text opts)))
+    (is (= expected (vec (c/split-seq text opts))))
+    (is (= ["Alpha beta." "Gamma delta." "Epsilon zeta."]
+           (c/split text (dissoc opts :diagnostics))))))
+
+(deftest diagnostics-identify-depth-overflow-and-oversized-atoms
+  (let [recursive (c/split "one two three four" {:chunk-size 7 :overlap 0
+                                                   :diagnostics true})
+        deeper (c/split "aaaaaa b" {:chunk-size 3 :overlap 0
+                                     :separators [" " ""] :diagnostics true})
+        atom (c/split "supercalifragilistic" {:chunk-size 5 :overlap 0
+                                               :separators ["\n\n" "\n" " "]
+                                               :diagnostics true})]
+    (is (= [{:text "one two"
+            :diagnostics {:separator " " :depth 0 :length 7
+                           :overflowed? false :oversized-atom? false}}
+            {:text "three"
+            :diagnostics {:separator " " :depth 0 :length 6
+                           :overflowed? false :oversized-atom? false}}
+            {:text "four"
+            :diagnostics {:separator " " :depth 0 :length 5
+                           :overflowed? false :oversized-atom? false}}]
+           recursive))
+    (is (some #(= {:separator "" :depth 1 :length 3
+                   :overflowed? false :oversized-atom? false}
+                  (:diagnostics %))
+              deeper))
+    (is (= [{:text "supercalifragilistic"
+             :diagnostics {:separator " " :depth 0 :length 20
+                           :overflowed? true :oversized-atom? true}}]
+           atom))))
+
+(deftest diagnostics-do-not-add-length-fn-calls
+  (let [calls (atom 0)
+        length-fn (fn [s] (swap! calls inc) (count s))
+        opts {:chunk-size 15 :overlap 5 :length-fn length-fn}
+        plain (c/split "one two three four five six seven eight nine ten eleven twelve"
+                       opts)
+        plain-calls @calls]
+    (reset! calls 0)
+    (is (= (mapv :text (c/split "one two three four five six seven eight nine ten eleven twelve"
+                                (assoc opts :diagnostics true)))
+           plain))
+    (is (= plain-calls @calls))))
+
+(deftest diagnostics-propagate-through-offsets-and-documents
+  (let [opts {:chunk-size 8 :overlap 0 :diagnostics true}
+        text "alpha beta gamma"
+        chunks (c/split-with-offsets text opts)
+        document (c/chunk-document {:id "doc" :text text :metadata {:x 1}} opts)]
+    (is (every? #(contains? % :diagnostics) chunks))
+    (is (= (mapv :diagnostics chunks) (mapv :diagnostics document)))))
+
 (deftest blank-yields-nothing
   (is (= [] (c/split "" {:chunk-size 100})))
   (is (= [] (c/split "   \n  " {:chunk-size 100})))
@@ -328,7 +393,9 @@
                  chunk-size (gen/choose 1 24)
                  overlap (gen/choose 0 8)
                  keep (gen/elements [:start :end false])]
-    (let [text (str/join separator fragments)
+      (let [text (str/join separator fragments)
           opts {:chunk-size chunk-size :overlap overlap
                 :separators [separator ""] :keep-separator keep}]
-      (= (c/split text opts) (vec (c/split-seq text opts))))))
+      (and (= (c/split text opts) (vec (c/split-seq text opts)))
+           (= (c/split text (assoc opts :diagnostics true))
+              (vec (c/split-seq text (assoc opts :diagnostics true))))))))

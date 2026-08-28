@@ -4,6 +4,12 @@ All notable changes to this project are documented here. Format follows [Keep a 
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in per-chunk diagnostics reporting the selected separator, recursion depth,
+  cached length measurement, target overflow, and oversized atoms across eager and
+  lazy APIs.
+
 ## [0.6.0] - 2026-08-27
 
 ### Added
