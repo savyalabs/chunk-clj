@@ -4,6 +4,15 @@ All notable changes to this project are documented here. Format follows [Keep a 
 
 ## [Unreleased]
 
+### Added
+
+- Regex separators in `:separators`, with the existing separator retention modes.
+- Literal language presets for JSON, XML, YAML, SQL, plain prose, and reStructuredText.
+- Actionable validation for splitter options and length-function results.
+- Generative eager/lazy equivalence coverage for Unicode, separators, overlap, and
+  retention modes.
+- Opt-in configurable sentence-boundary splitting with abbreviation support.
+
 ## [0.5.0] - 2026-08-27
 
 ### Added

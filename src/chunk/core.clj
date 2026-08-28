@@ -14,6 +14,19 @@
   "Split boundaries from coarsest to finest. The empty string splits into characters."
   ["\n\n" "\n" " " ""])
 
+(defn sentence-separators
+  "Return a regex separator for sentence boundaries.
+
+  `config` may contain `:terminators` and `:abbreviations` collections."
+  ([] (sentence-separators nil))
+  ([{:keys [terminators abbreviations]}]
+   (let [terminators (or terminators ["." "!" "?" "。" "！" "？"])
+         abbreviations (or abbreviations [])
+         escaped (fn [s] (Pattern/quote s))
+         negative (apply str (map #(str "(?<!" (escaped %) ")") abbreviations))
+         ending (apply str (interpose "|" (map escaped terminators)))]
+     (re-pattern (str negative "(?<=" ending ")\\s+")))))
+
 (def language-separators
   "Split boundaries for each language, with the coarsest first."
   {:markdown (into ["\n# " "\n## " "\n### " "\n#### " "\n##### " "\n###### "
@@ -53,7 +66,16 @@
                  "\n\\begin{itemize}" "\n\\begin{description}"
                  "\n\\begin{list}" "\n\\begin{quote}" "\n\\begin{quotation}"
                  "\n\\begin{verse}" "\n\\begin{verbatim}" "\n\\begin{align}"]
-                default-separators)})
+                default-separators)
+   :json (into ["\n{" "\n[" "}," ","] default-separators)
+   :xml (into ["<item" "</item>" "<section" "<record" "<entry"] default-separators)
+   :yaml (into ["\n---\n" "\n...\n" "\n- " "\n"] default-separators)
+   :sql (into ["\nSELECT " "\nWITH " "\nINSERT " "\nUPDATE " "\nDELETE "
+                "\nFROM " "\nWHERE " "\nGROUP BY " "\nORDER BY "]
+              default-separators)
+   :prose (into ["\n\n" "? " ". " "! "] default-separators)
+   :rst (into ["\n=====\n" "\n-----\n" "\n^^^^^\n" "\n~~~~~\n" "\n.. "]
+               default-separators)})
 
 (defn separators-for
   "Return the separator vector for language keyword `lang`."
@@ -65,14 +87,72 @@
                      :language lang
                      :known (set (keys language-separators))}))))
 
+(declare regex-separator?)
+
+(defn- invalid-option! [option value message]
+  (throw (ex-info message {:chunk/error :invalid-option
+                           :option option
+                           :value value})))
+
+(defn- validate-options! [text chunk-size overlap separators length-fn keep-separator]
+  (when (and (some? text) (not (string? text)))
+    (invalid-option! :text text "Text must be a string or nil"))
+  (when-not (and (integer? chunk-size) (pos? chunk-size))
+    (invalid-option! :chunk-size chunk-size "Chunk size must be a positive integer"))
+  (when-not (and (integer? overlap) (<= 0 overlap))
+    (invalid-option! :overlap overlap "Overlap must be a non-negative integer"))
+  (when-not (and (sequential? separators) (seq separators)
+                 (every? #(or (string? %) (regex-separator? %)) separators))
+    (invalid-option! :separators separators "Separators must be a non-empty collection of strings or regex patterns"))
+  (when-not (ifn? length-fn)
+    (invalid-option! :length-fn length-fn "Length function must be callable"))
+  (when-not (contains? #{:start :end false} keep-separator)
+    (invalid-option! :keep-separator keep-separator "Keep separator must be :start, :end, or false")))
+
+(defn- measured-length [length-fn value]
+  (let [result (length-fn value)]
+    (if (and (integer? result) (not (neg? result)))
+      (long result)
+      (throw (ex-info "Length function must return a non-negative integer"
+                      {:chunk/error :invalid-length
+                       :option :length-fn
+                       :value result
+                       :text value})))))
+
+(defn- regex-separator? [sep]
+  (instance? Pattern sep))
+
+(defn- separator-present? [^String text sep]
+  (if (regex-separator? sep)
+    (.find (.matcher ^Pattern sep text))
+    (str/includes? text sep)))
+
+(defn- split-on-regex [^String s ^Pattern sep keep-separator]
+  (let [matcher (.matcher sep s)]
+    (loop [piece-start 0, pieces []]
+      (if (.find matcher)
+        (let [at (.start matcher)
+              end (.end matcher)]
+          (cond
+            (= keep-separator false)
+            (recur end (cond-> pieces (< piece-start at) (conj (subs s piece-start at))))
+            (= keep-separator :start)
+            (recur at (cond-> pieces (< piece-start at) (conj (subs s piece-start at))))
+            :else
+            (recur end (conj pieces (subs s piece-start end)))))
+        (cond-> pieces (< piece-start (count s)) (conj (subs s piece-start)))))))
+
 (defn- split-on
-  "Split s on literal separator sep. Attach it to an adjacent piece when requested."
-  [^String s ^String sep keep-separator]
-  (if (or (= sep "") (= keep-separator false))
-    (if (= sep "")
-      (vec (re-seq (Pattern/compile "\\X") s))
-      (->> (str/split s (re-pattern (Pattern/quote sep)) -1)
-           (filterv (complement #(= "" %)))))
+  "Split s on a literal string or regex separator. Attach it to an adjacent piece
+  when requested. Regex matches are processed in matcher order, including zero-width
+  matches."
+  [^String s sep keep-separator]
+  (cond
+    (= sep "") (vec (re-seq (Pattern/compile "\\X") s))
+    (regex-separator? sep) (split-on-regex s sep keep-separator)
+    (= keep-separator false) (->> (str/split s (re-pattern (Pattern/quote sep)) -1)
+                                  (filterv (complement #(= "" %))))
+    :else
     (let [separator-length (count sep)]
       (loop [piece-start 0, search-start 0, pieces []]
         (let [at (.indexOf s sep search-start)]
@@ -86,6 +166,9 @@
               (recur (+ at separator-length) (+ at separator-length)
                      (conj pieces (subs s piece-start (+ at separator-length)))))))))))
 
+(defn- join-separator [sep keep-separator]
+  (if (or (not= keep-separator false) (regex-separator? sep)) "" sep))
+
 (defn- join-trim [pieces sep]
   (let [d (str/join sep pieces)]
     (when-not (str/blank? d) (str/trim d))))
@@ -94,7 +177,7 @@
   (let [joined (str/join sep pieces)]
     (if (contains? @cache joined)
       (get @cache joined)
-      (let [length (long (length-fn joined))]
+      (let [length (measured-length length-fn joined)]
         (swap! cache assoc joined length)
         length))))
 
@@ -130,7 +213,7 @@
         out))))
 
 (defn- recursive-split [text separators chunk-size overlap length-fn keep-separator cache]
-  (let [sep (or (some #(when (and (not= "" %) (str/includes? text %)) %) separators)
+  (let [sep (or (some #(when (and (not= "" %) (separator-present? text %)) %) separators)
                 (last separators))
         deeper-seps (vec (rest (drop-while #(not= % sep) separators)))
         pieces (split-on text sep keep-separator)]
@@ -138,12 +221,12 @@
       (if-let [p (first pieces)]
         (if (<= (long (if (contains? @cache p)
                          (get @cache p)
-                         (let [length (long (length-fn p))]
+                         (let [length (measured-length length-fn p)]
                            (swap! cache assoc p length)
                            length)))
                     chunk-size)
           (recur (next pieces) (conj good p) out)
-          (let [join-sep (if (= keep-separator false) sep "")
+          (let [join-sep (join-separator sep keep-separator)
                 merged (if (seq good)
                          (merge-splits good join-sep chunk-size overlap
                                        length-fn cache)
@@ -154,14 +237,15 @@
                          [p])]                            ; nothing finer to try -> keep whole
             (recur (next pieces) [] (into (into out merged) deeper))))
         (into out (when (seq good)
-                    (merge-splits good (if (= keep-separator false) sep "")
+                    (merge-splits good (join-separator sep keep-separator)
                                   chunk-size overlap length-fn cache)))))))
 
 (defn- split-on-lazy
   "Lazy counterpart to split-on. It yields the same pieces without collecting them."
-  [^String s ^String sep keep-separator]
+  [^String s sep keep-separator]
   (cond
     (= sep "") (re-seq (Pattern/compile "\\X") s)
+    (regex-separator? sep) (lazy-seq (split-on-regex s sep keep-separator))
     (= keep-separator false)
     (letfn [(pieces [start]
               (lazy-seq
@@ -214,17 +298,17 @@
 
 (defn- recursive-split-lazy
   [text separators chunk-size overlap length-fn keep-separator cache]
-  (let [sep (or (some #(when (and (not= "" %) (str/includes? text %)) %) separators)
+  (let [sep (or (some #(when (and (not= "" %) (separator-present? text %)) %) separators)
                 (last separators))
         deeper-seps (vec (rest (drop-while #(not= % sep) separators)))
         pieces (split-on-lazy text sep keep-separator)
-        join-sep (if (= keep-separator false) sep "")]
+        join-sep (join-separator sep keep-separator)]
     (letfn [(walk [pieces good]
               (lazy-seq
                (if-let [p (first pieces)]
                  (if (<= (long (if (contains? @cache p)
                                    (get @cache p)
-                                   (let [length (long (length-fn p))]
+                         (let [length (measured-length length-fn p)]
                                      (swap! cache assoc p length)
                                      length)))
                          chunk-size)
@@ -232,10 +316,14 @@
                      (if (and (seq good)
                               (> (joined-length candidate join-sep length-fn cache)
                                  (long chunk-size)))
-                       (cons (join-trim good join-sep)
-                             (walk pieces (trim-overlap good p join-sep
-                                                        chunk-size overlap
-                                                        length-fn cache)))
+                       (if-let [doc (join-trim good join-sep)]
+                         (cons doc
+                               (walk pieces (trim-overlap good p join-sep
+                                                          chunk-size overlap
+                                                          length-fn cache)))
+                         (walk pieces (trim-overlap good p join-sep
+                                                    chunk-size overlap
+                                                    length-fn cache)))
                        (walk (next pieces) candidate)))
                    (let [deeper (if (seq deeper-seps)
                                   (recursive-split-lazy p deeper-seps chunk-size
@@ -270,7 +358,13 @@
                                        :options #{:language :separators}}))
                       (contains? opts :language) (separators-for language)
                       (contains? opts :separators) separators
-                      :else default-separators)]
+                      :else (if (contains? opts :sentence-boundaries)
+                              (into [(sentence-separators (when (map? (:sentence-boundaries opts))
+                                                           (:sentence-boundaries opts)))]
+                                    default-separators)
+                              default-separators))]
+     (validate-options! text chunk-size overlap separators length-fn
+                        (if (contains? opts :keep-separator) keep-separator :start))
      (if (str/blank? (str text))
        (lazy-seq nil)
        (recursive-split-lazy text (vec separators) chunk-size overlap length-fn
@@ -333,7 +427,13 @@
 
                       (contains? opts :language) (separators-for language)
                       (contains? opts :separators) separators
-                      :else default-separators)]
+                      :else (if (contains? opts :sentence-boundaries)
+                              (into [(sentence-separators (when (map? (:sentence-boundaries opts))
+                                                           (:sentence-boundaries opts)))]
+                                    default-separators)
+                              default-separators))]
+     (validate-options! text chunk-size overlap separators length-fn
+                        (if (contains? opts :keep-separator) keep-separator :start))
      (if (str/blank? (str text))
        []
        (recursive-split text (vec separators) chunk-size overlap length-fn

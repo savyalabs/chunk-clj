@@ -64,6 +64,10 @@ clojure -T:build deploy
 ;; Or use a built-in language preset:
 (chunk/split doc {:chunk-size 800 :language :markdown})
 
+;; Opt into sentence-aware boundaries (without changing the default hierarchy):
+(chunk/split prose {:chunk-size 800
+                    :sentence-boundaries {:abbreviations ["Dr." "e.g."]}})
+
 ;; Keep source locations for indexing or highlighting:
 (chunk/split-with-offsets doc {:chunk-size 800 :language :markdown})
 ;=> [{:text "...", :start 0, :end 42} ...]
@@ -90,6 +94,9 @@ By default, `:keep-separator :start` keeps each separator and attaches it to the
 that follows it. This keeps language and markdown content such as `def ` and `## `.
 Use `:keep-separator :end` to attach a separator to the piece before it. Use
 `:keep-separator false` for the separator-dropping behavior from 0.2.2.
+Separators may also be compiled `java.util.regex.Pattern` values. Regex matches use
+the same `:start`, `:end`, and `false` retention modes; zero-width matches are handled
+left-to-right without looping.
 
 ### Language presets
 
@@ -97,7 +104,8 @@ Use `:keep-separator :end` to attach a separator to the piece before it. Use
 Chunks then land on structural boundaries: headings, function definitions, and
 tags. The preset then falls back to paragraphs, lines, words, and characters.
 The presets are `:markdown`, `:python`, `:clojure`, `:javascript`,
-`:typescript`, `:java`, `:go`, `:rust`, `:html`, and `:latex`.
+`:typescript`, `:java`, `:go`, `:rust`, `:html`, `:latex`, `:json`, `:xml`,
+`:yaml`, `:sql`, `:prose`, and `:rst`.
 
 ```clojure
 (chunk/split source {:chunk-size 512 :language :clojure})
@@ -134,10 +142,18 @@ model's exact token limit.
 |-----|---------|---------|
 | `:chunk-size` | `1000` | Maximum chunk size, in `:length-fn` units |
 | `:overlap` | `0` | Trailing context repeated at the start of the next chunk |
-| `:separators` | `["\n\n" "\n" " " ""]` | Ordered split boundaries, coarsest first |
+| `:separators` | `["\n\n" "\n" " " ""]` | Ordered literal strings or compiled regex boundaries, coarsest first |
 | `:keep-separator` | `:start` | Keep separators on the following piece (`:end` attaches them to the preceding piece; `false` drops them) |
 | `:language` | - | Select a built-in language separator preset |
 | `:length-fn` | `count` | Measures a string's size (use a token counter) |
+
+Set `:sentence-boundaries` to `true` or to a map with `:terminators` and
+`:abbreviations` to add sentence boundaries ahead of the default hierarchy.
+
+`:chunk-size` must be a positive integer, `:overlap` a non-negative integer, and
+`:length-fn` must return a non-negative integer. Invalid options throw `ex-info` with
+`:chunk/error :invalid-option` and the offending `:option` in `ex-data`. Non-string
+text is rejected (with `nil` retained as the existing blank-input shorthand).
 
 If an "atom" is longer than `:chunk-size` and has no finer separator available, the
 splitter emits it whole. It does not drop it. An example is one very long word when
