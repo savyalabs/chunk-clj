@@ -4,6 +4,8 @@ All notable changes to this project are documented here. Format follows [Keep a 
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-27
+
 ### Added
 
 - Regex separators in `:separators`, with the existing separator retention modes.
