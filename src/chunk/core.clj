@@ -102,6 +102,15 @@
                            :option option
                            :value value})))
 
+(defn- validate-document! [document]
+  (let [required #{:id :text :metadata}]
+    (when-not (and (map? document) (every? #(contains? document %) required))
+      (throw (ex-info "Document must be a map containing :id, :text, and :metadata"
+                      {:chunk/error :invalid-document
+                       :required required
+                       :document document}))))
+  document)
+
 (defn- validate-options! [text chunk-size overlap separators length-fn keep-separator]
   (when (and (some? text) (not (string? text)))
     (invalid-option! :text text "Text must be a string or nil"))
@@ -454,10 +463,12 @@
 
   The document and options match `chunk-document`."
   ([document] (chunk-document-seq document nil))
-  ([{:keys [id text metadata]} opts]
-   (map-indexed (fn [index chunk]
-                  (assoc chunk :id id :index index :metadata metadata))
-                (split-with-offsets-seq text opts))))
+  ([document opts]
+   (validate-document! document)
+   (let [{:keys [id text metadata]} document]
+     (map-indexed (fn [index chunk]
+                    (assoc chunk :id id :index index :metadata metadata))
+                  (split-with-offsets-seq text opts)))))
 
 (defn split
   "Split `text` into a vector of chunk strings.
@@ -535,10 +546,12 @@
   With `:keep-separator false`, offsets may be nil when a chunk is not an exact
   source substring, matching `split-with-offsets`."
   ([document] (chunk-document document nil))
-  ([{:keys [id text metadata]} opts]
-   (map-indexed (fn [index chunk]
-                  (assoc chunk
-                         :id id
-                         :index index
-                         :metadata metadata))
-                (split-with-offsets text opts))))
+  ([document opts]
+   (validate-document! document)
+   (let [{:keys [id text metadata]} document]
+     (map-indexed (fn [index chunk]
+                    (assoc chunk
+                           :id id
+                           :index index
+                           :metadata metadata))
+                  (split-with-offsets text opts)))))

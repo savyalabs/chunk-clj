@@ -342,6 +342,16 @@
       (is (= (:text chunk)
              (subs source-text (:start chunk) (:end chunk)))))))
 
+(deftest chunk-document-requires-the-documented-shape
+  (doseq [chunker [c/chunk-document c/chunk-document-seq]
+          document [{:text "hello"} "hello" nil]]
+    (try
+      (chunker document {:chunk-size 10})
+      (is false (str "Expected invalid document: " (pr-str document)))
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :invalid-document (:chunk/error (ex-data e)))))))
+  (is (= [] (c/chunk-document {:id "doc" :text "" :metadata {}}))))
+
 (deftest caches-length-fn-measurements-within-a-split
   (let [calls (atom 0)
         length-fn (fn [s] (swap! calls inc) (count s))
