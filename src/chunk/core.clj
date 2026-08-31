@@ -181,19 +181,29 @@
         (str/trim d)
         d))))
 
+(def ^:private max-length-cache-entries 256)
+
+(defn- cache-length! [cache value length]
+  (swap! cache
+         (fn [entries]
+           (let [entries (assoc entries value length)]
+             (if (> (count entries) max-length-cache-entries)
+               (dissoc entries (first (keys entries)))
+               entries)))))
+
 (defn- joined-length [pieces sep length-fn cache]
   (let [joined (str/join sep pieces)]
     (if (contains? @cache joined)
       (get @cache joined)
       (let [length (measured-length length-fn joined)]
-        (swap! cache assoc joined length)
+        (cache-length! cache joined length)
         length))))
 
 (defn- cached-length [value length-fn cache]
   (if (contains? @cache value)
     (get @cache value)
     (let [length (measured-length length-fn value)]
-      (swap! cache assoc value length)
+      (cache-length! cache value length)
       length)))
 
 (defn- chunk-record [text separator depth length chunk-size oversized-atom?]

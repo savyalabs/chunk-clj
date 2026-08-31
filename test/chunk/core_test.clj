@@ -358,6 +358,19 @@
     (let [prefix-calls @calls]
       (is (< prefix-calls (count (c/split text (assoc opts :length-fn count))))))))
 
+(deftest streaming-length-cache-is-bounded
+  (let [original (deref #'chunk.core/joined-length)
+        maximum (atom 0)
+        text (apply str (map #(char (+ 0xE000 %)) (range 3000)))
+        opts {:chunk-size 32 :overlap 0 :separators [""]}]
+    (with-redefs [chunk.core/joined-length
+                  (fn [pieces sep length-fn cache]
+                    (let [result (original pieces sep length-fn cache)]
+                      (swap! maximum max (count @cache))
+                      result))]
+      (doall (c/split-seq text opts)))
+    (is (<= @maximum 256))))
+
 (deftest streaming-boundaries-match-eager-path-property
   (let [fragments ["alpha" "beta" "gamma" "delta" "😀" "é" "𝔘"]
         separators [["\n\n" "\n" " " ""]
