@@ -281,6 +281,13 @@
     (is (= ["alpha" "beta" "gamma"]
            (c/split text (assoc opts :keep-separator false))))))
 
+(deftest keep-separator-preserves-whitespace
+  (let [opts {:chunk-size 2 :overlap 0 :separators [" "]}]
+    (is (= ["a " "b"]
+           (c/split "a b" (assoc opts :keep-separator :end))))
+    (is (= ["a" " b"]
+           (c/split "a b" (assoc opts :keep-separator :start))))))
+
 (deftest regex-separators-respect-retention-modes
   (let [opts {:chunk-size 8
               :overlap 0

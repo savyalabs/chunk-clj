@@ -14,6 +14,8 @@
   "Split boundaries from coarsest to finest. The empty string splits into characters."
   ["\n\n" "\n" " " ""])
 
+(def ^:private default-keep-separator :default-start)
+
 (defn sentence-separators
   "Return a regex separator for sentence boundaries.
 
@@ -136,7 +138,8 @@
           (cond
             (= keep-separator false)
             (recur end (cond-> pieces (< piece-start at) (conj (subs s piece-start at))))
-            (= keep-separator :start)
+            (or (= keep-separator :start)
+                (= keep-separator default-keep-separator))
             (recur at (cond-> pieces (< piece-start at) (conj (subs s piece-start at))))
             :else
             (recur end (conj pieces (subs s piece-start end)))))
@@ -159,7 +162,8 @@
           (if (neg? at)
             (cond-> pieces
               (< piece-start (count s)) (conj (subs s piece-start)))
-            (if (= keep-separator :start)
+            (if (or (= keep-separator :start)
+                    (= keep-separator default-keep-separator))
               (recur at (+ at separator-length) (cond-> pieces
                                                   (< piece-start at)
                                                   (conj (subs s piece-start at))))
@@ -169,9 +173,13 @@
 (defn- join-separator [sep keep-separator]
   (if (or (not= keep-separator false) (regex-separator? sep)) "" sep))
 
-(defn- join-trim [pieces sep]
+(defn- join-trim [pieces sep keep-separator]
   (let [d (str/join sep pieces)]
-    (when-not (str/blank? d) (str/trim d))))
+    (when-not (str/blank? d)
+      (if (or (= keep-separator false)
+              (= keep-separator default-keep-separator))
+        (str/trim d)
+        d))))
 
 (defn- joined-length [pieces sep length-fn cache]
   (let [joined (str/join sep pieces)]
@@ -219,13 +227,13 @@
 (defn- merge-splits
   "Pack pieces, each already <= chunk-size, into chunks of <= chunk-size. Join pieces
   with sep. Carry trailing pieces of `overlap` size into the next chunk."
-  [pieces sep selected-separator depth chunk-size overlap length-fn cache]
+  [pieces sep selected-separator depth chunk-size overlap length-fn keep-separator cache]
   (loop [pieces (seq pieces), cur [], out []]
     (if-let [d (first pieces)]
       (let [candidate (conj cur d)
             candidate-len (joined-length candidate sep length-fn cache)]
         (if (and (seq cur) (> candidate-len (long chunk-size)))
-          (let [doc (join-trim cur sep)
+          (let [doc (join-trim cur sep keep-separator)
                 out (cond-> out doc (conj (chunk-record
                                            doc selected-separator depth
                                            (joined-length cur sep length-fn cache)
@@ -233,7 +241,7 @@
                 cur (trim-overlap cur d sep chunk-size overlap length-fn cache)]
             (recur pieces cur out))                      ; Retry the same d with the trimmed buffer.
           (recur (next pieces) candidate out)))
-      (if-let [doc (join-trim cur sep)]
+      (if-let [doc (join-trim cur sep keep-separator)]
         (conj out (chunk-record doc selected-separator depth
                                 (joined-length cur sep length-fn cache)
                                 chunk-size false))
@@ -253,7 +261,7 @@
             (let [join-sep (join-separator sep keep-separator)
                   merged (if (seq good)
                            (merge-splits good join-sep sep depth chunk-size overlap
-                                         length-fn cache)
+                                         length-fn keep-separator cache)
                            [])
                   deeper (if (seq deeper-seps)
                            (recursive-split p deeper-seps (inc depth) chunk-size overlap
@@ -262,7 +270,7 @@
               (recur (next pieces) [] (into (into out merged) deeper)))))
         (into out (when (seq good)
                     (merge-splits good (join-separator sep keep-separator) sep depth
-                                  chunk-size overlap length-fn cache)))))))
+                                  chunk-size overlap length-fn keep-separator cache)))))))
 
 (defn- split-on-lazy
   "Lazy counterpart to split-on. It yields the same pieces without collecting them."
@@ -288,39 +296,41 @@
                  (if (neg? at)
                    (when (< piece-start (count s))
                      (list (subs s piece-start)))
-                   (if (= keep-separator :start)
+                   (if (or (= keep-separator :start)
+                           (= keep-separator default-keep-separator))
                      (cons (when (< piece-start at)
                              (subs s piece-start at))
                            (pieces at (+ at separator-length)))
                      (cons (subs s piece-start (+ at separator-length))
                            (pieces (+ at separator-length)
                                    (+ at separator-length))))))))]
-      (if (= keep-separator :start)
+      (if (or (= keep-separator :start)
+              (= keep-separator default-keep-separator))
         (filter identity (pieces 0 0))
         (pieces 0 0)))))
 
 (defn- merge-splits-lazy
   "Lazy counterpart to merge-splits. Only the current chunk buffer is retained."
-  [pieces sep selected-separator depth chunk-size overlap length-fn cache cur]
+  [pieces sep selected-separator depth chunk-size overlap length-fn keep-separator cache cur]
   (lazy-seq
    (if-let [d (first pieces)]
      (let [candidate (conj cur d)
            candidate-len (joined-length candidate sep length-fn cache)]
        (if (and (seq cur) (> candidate-len (long chunk-size)))
-         (let [doc (join-trim cur sep)]
+         (let [doc (join-trim cur sep keep-separator)]
            (if doc
             (cons (chunk-record doc selected-separator depth
                                 (joined-length cur sep length-fn cache)
                                 chunk-size false)
-                   (merge-splits-lazy pieces sep selected-separator depth chunk-size overlap length-fn cache
+                   (merge-splits-lazy pieces sep selected-separator depth chunk-size overlap length-fn keep-separator cache
                                       (trim-overlap cur d sep chunk-size overlap
                                                      length-fn cache)))
-             (merge-splits-lazy pieces sep selected-separator depth chunk-size overlap length-fn cache
+             (merge-splits-lazy pieces sep selected-separator depth chunk-size overlap length-fn keep-separator cache
                                 (trim-overlap cur d sep chunk-size overlap
                                                length-fn cache))))
-         (merge-splits-lazy (next pieces) sep selected-separator depth chunk-size overlap length-fn cache
+         (merge-splits-lazy (next pieces) sep selected-separator depth chunk-size overlap length-fn keep-separator cache
                             candidate)))
-     (when-let [doc (join-trim cur sep)]
+     (when-let [doc (join-trim cur sep keep-separator)]
        (list (chunk-record doc selected-separator depth
                            (joined-length cur sep length-fn cache)
                            chunk-size false))))))
@@ -341,7 +351,7 @@
                        (if (and (seq good)
                                 (> (joined-length candidate join-sep length-fn cache)
                                    (long chunk-size)))
-                         (if-let [doc (join-trim good join-sep)]
+                         (if-let [doc (join-trim good join-sep keep-separator)]
                             (cons (chunk-record doc sep depth
                                                 (joined-length good join-sep length-fn cache)
                                                 chunk-size false)
@@ -357,7 +367,7 @@
                                     (list (chunk-record p sep depth p-length
                                                          chunk-size true)))]
                        (concat (when-let [doc (when (seq good)
-                                               (join-trim good join-sep))]
+                                               (join-trim good join-sep keep-separator))]
                                  (list (chunk-record doc sep depth
                                                      (joined-length good join-sep length-fn cache)
                                                      chunk-size false)))
@@ -365,7 +375,7 @@
                                (walk (next pieces) [])))))
                  (if (seq good)
                    (merge-splits-lazy good join-sep sep depth chunk-size overlap
-                                      length-fn cache [])
+                                      length-fn keep-separator cache [])
                    ()))))]
       (walk pieces []))))
 
@@ -397,7 +407,9 @@
      (if (str/blank? (str text))
        (lazy-seq nil)
        (let [chunks (recursive-split-lazy text (vec separators) 0 chunk-size overlap length-fn
-                                          (if (contains? opts :keep-separator) keep-separator :start)
+                                          (if (contains? opts :keep-separator)
+                                            keep-separator
+                                            default-keep-separator)
                                           (atom {}))]
          (map #(render-chunk % diagnostics) chunks))))))
 
@@ -470,7 +482,9 @@
        []
        (mapv #(render-chunk % diagnostics)
              (recursive-split text (vec separators) 0 chunk-size overlap length-fn
-                              (if (contains? opts :keep-separator) keep-separator :start)
+                              (if (contains? opts :keep-separator)
+                                keep-separator
+                                default-keep-separator)
                               (atom {})))))))
 
 (defn split-with-offsets
