@@ -4,6 +4,25 @@ All notable changes to this project are documented here. Format follows [Keep a 
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-30
+
+### Fixed
+
+- `:keep-separator :start` and `:end` now retain whitespace separators instead of
+  trimming them from the resulting chunks. `:keep-separator false` keeps its existing
+  trimming behavior.
+- Streaming APIs now bound their length-measurement cache, preventing memory use from
+  growing with the full document while preserving chunk output.
+
+### Changed
+
+- **Breaking:** An explicitly empty `:terminators` collection now throws. Callers that
+  pass an empty collection must instead disable sentence boundaries or provide at least
+  one terminator; omitting `:terminators` still selects the defaults.
+- **Breaking:** `chunk-document` and `chunk-document-seq` now require a document map with
+  `:id`, `:text`, and `:metadata`. Callers must supply all three keys instead of relying
+  on missing values being accepted.
+
 ## [0.7.0] - 2026-08-28
 
 ### Added

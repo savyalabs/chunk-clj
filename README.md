@@ -28,13 +28,13 @@ You set the size limit. `:length-fn` defaults to characters. Models limit you by
 tools.deps (`deps.edn`):
 
 ```clojure
-net.clojars.savya/chunk-clj {:mvn/version "0.7.0"}
+net.clojars.savya/chunk-clj {:mvn/version "0.8.0"}
 ```
 
 Leiningen (`project.clj`):
 
 ```clojure
-[net.clojars.savya/chunk-clj "0.7.0"]
+[net.clojars.savya/chunk-clj "0.8.0"]
 ```
 
 ## Development
@@ -172,8 +172,10 @@ the same source offsets together with the document id, caller metadata, and a ze
 `split-with-offsets`; metadata is passed through unchanged.
 
 `split-seq`, `split-with-offsets-seq`, and `chunk-document-seq` are lazy streaming
-counterparts to the eager APIs. They retain only the active packing buffer and overlap
-tail while producing chunks, so consumers can process large documents incrementally.
+counterparts to the eager APIs. They retain only the active packing buffer, overlap
+tail, and a bounded length-measurement cache while producing chunks, so consumers can
+process large documents incrementally without cache growth proportional to document
+length.
 Their chunk boundaries, grapheme-safe character fallback, overlap, separator behavior,
 offsets, and document metadata are identical to the corresponding eager APIs.
 
