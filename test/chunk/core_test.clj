@@ -240,6 +240,14 @@
     (is (some #(str/includes? % "It was late!") chunks)))
   (is (instance? java.util.regex.Pattern (c/sentence-separators))))
 
+(deftest empty-sentence-terminators-are-invalid
+  (try
+    (c/sentence-separators {:terminators []})
+    (is false "Expected empty terminators to be rejected")
+    (catch clojure.lang.ExceptionInfo e
+      (is (= :invalid-option (:chunk/error (ex-data e))))
+      (is (= :terminators (:option (ex-data e)))))))
+
 (deftest language-separators-have-default-tail-and-literal-strings
   (doseq [[language separators] c/language-separators]
     (testing language

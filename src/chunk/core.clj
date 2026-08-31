@@ -21,12 +21,18 @@
 
   `config` may contain `:terminators` and `:abbreviations` collections."
   ([] (sentence-separators nil))
-  ([{:keys [terminators abbreviations]}]
-   (let [terminators (or terminators ["." "!" "?" "。" "！" "？"])
+  ([config]
+   (let [{:keys [terminators abbreviations]} config
+         terminators (or terminators ["." "!" "?" "。" "！" "？"])
          abbreviations (or abbreviations [])
          escaped (fn [s] (Pattern/quote s))
          negative (apply str (map #(str "(?<!" (escaped %) ")") abbreviations))
          ending (apply str (interpose "|" (map escaped terminators)))]
+     (when (and (map? config) (contains? config :terminators) (empty? terminators))
+       (throw (ex-info "Sentence terminators must be a non-empty collection"
+                       {:chunk/error :invalid-option
+                        :option :terminators
+                        :value terminators})))
      (re-pattern (str negative "(?<=" ending ")\\s+")))))
 
 (def language-separators
