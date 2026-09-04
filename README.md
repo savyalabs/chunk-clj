@@ -2,7 +2,7 @@
 
 [![Clojars Project](https://img.shields.io/clojars/v/net.clojars.savya/chunk-clj.svg)](https://clojars.org/net.clojars.savya/chunk-clj)
 [![cljdoc](https://cljdoc.org/badge/net.clojars.savya/chunk-clj)](https://cljdoc.org/d/net.clojars.savya/chunk-clj)
-[![test](https://github.com/jsavyasachi/chunk-clj/actions/workflows/test.yml/badge.svg)](https://github.com/jsavyasachi/chunk-clj/actions/workflows/test.yml)
+[![test](https://github.com/savyalabs/chunk-clj/actions/workflows/test.yml/badge.svg)](https://github.com/savyalabs/chunk-clj/actions/workflows/test.yml)
 
 This library splits text recursively into chunks for RAG and LLM pipelines. It splits
 text on natural boundaries into overlapping chunks by characters **or tokens**.

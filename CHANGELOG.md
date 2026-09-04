@@ -117,4 +117,4 @@ All notable changes to this project are documented here. Format follows [Keep a 
 - Oversized atoms with no admissible finer separator are emitted whole, never dropped.
 - Zero runtime dependencies.
 
-[0.1.0]: https://github.com/jsavyasachi/chunk-clj/releases/tag/0.1.0
+[0.1.0]: https://github.com/savyalabs/chunk-clj/releases/tag/0.1.0

@@ -24,12 +24,12 @@
                 :version version
                 :basis @basis
                 :src-dirs ["src"]
-                :scm {:url "https://github.com/jsavyasachi/chunk-clj"
-                      :connection "scm:git:https://github.com/jsavyasachi/chunk-clj.git"
-                      :developerConnection "scm:git:ssh://git@github.com/jsavyasachi/chunk-clj.git"
+                :scm {:url "https://github.com/savyalabs/chunk-clj"
+                      :connection "scm:git:https://github.com/savyalabs/chunk-clj.git"
+                      :developerConnection "scm:git:ssh://git@github.com/savyalabs/chunk-clj.git"
                       :tag (str "v" version)}
                 :pom-data [[:description "Recursive text splitting (chunking) for RAG and LLM pipelines: pluggable length (characters or tokens), configurable overlap, and ordered separators."]
-                           [:url "https://github.com/jsavyasachi/chunk-clj"]
+                           [:url "https://github.com/savyalabs/chunk-clj"]
                            [:licenses
                             [:license
                              [:name "Eclipse Public License 2.0"]
